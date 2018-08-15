@@ -1,0 +1,145 @@
+#include <OneWire.h>
+
+/* reading pins
+0x0 (B00000000) - Both pins LOW
+0x1 (B00000001) - IOA = HIGH, IOB = LOW
+0x2 (B00000010) - IOA = LOW, IOB = HIGH
+0x3 (B00000011) - Both pins HIGH
+0xFF (B11111111) - Read Failed!
+*/
+#define DS2413_ONEWIRE_PIN  (8)
+
+#define DS2413_FAMILY_ID    0x3A
+#define DS2413_ACCESS_READ  0xF5
+#define DS2413_ACCESS_WRITE 0x5A
+#define DS2413_ACK_SUCCESS  0xAA
+#define DS2413_ACK_ERROR    0xFF
+
+#define BUTTON_NO 3 //use this for size of array to store state values//
+
+OneWire oneWire(DS2413_ONEWIRE_PIN);
+uint8_t address[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+
+byte Button_states[BUTTON_NO];//this is the array of button states//
+
+void printBytes(uint8_t* addr, uint8_t count, bool newline=0) 
+{
+  for (uint8_t i = 0; i < count; i++) 
+  {
+    Serial.print(addr[i]>>4, HEX);
+    Serial.print(addr[i]&0x0f, HEX);
+    Serial.print(" ");
+  }
+  if (newline)
+  {
+    Serial.println();
+  }
+}
+
+byte read(void)
+{ 
+  bool ok = false;
+  uint8_t results;
+
+  oneWire.reset();
+  oneWire.select(address);
+  oneWire.write(DS2413_ACCESS_READ);
+
+  results = oneWire.read();                 /* Get the register results   */
+  ok = (!results & 0x0F) == (results >> 4); /* Compare nibbles            */
+  results &= 0x0F;                          /* Clear inverted values      */
+
+  oneWire.reset();
+  
+  // return ok ? results : -1;
+  return results;
+}
+
+bool write(uint8_t state)
+{
+  uint8_t ack = 0;
+  
+  /* Top six bits must '1' */
+  state |= 0xFC;
+  
+  oneWire.reset();
+  oneWire.select(address);
+  oneWire.write(DS2413_ACCESS_WRITE);
+  oneWire.write(state);
+  oneWire.write(~state);                    /* Invert data and resend     */    
+  ack = oneWire.read();                     /* 0xAA=success, 0xFF=failure */  
+  if (ack == DS2413_ACK_SUCCESS)
+  {
+    oneWire.read();                          /* Read the status byte      */
+  }
+  oneWire.reset();
+    
+  return (ack == DS2413_ACK_SUCCESS ? true : false);
+}
+
+void setup(void) 
+{
+  Serial.begin(9600);  
+  
+  Serial.println(F("Looking for a DS2413 on the bus"));
+}
+  
+void loop(void) {
+  byte i;
+  byte present = 0;
+  byte data[12];
+  byte addr[8];
+  
+  if ( !oneWire.search(address)) {
+    Serial.println("");
+    Serial.print("No more addresses.\n");
+    oneWire.reset_search();
+    delay(50); //was 250
+    return;
+  }
+  Serial.println("");
+  Serial.print("R=");
+  for( i = 0; i < 8; i++) {
+    Serial.print(address[i], HEX);
+    Serial.print(" ");
+  }  
+
+  if ( OneWire::crc8( address, 7) != address[7]) {
+      Serial.print("CRC is not valid!\n");
+      return;
+  }
+  
+  if ( address[0] != DS2413_FAMILY_ID) {
+      Serial.print("Device is not a DS2413 family device.\n");
+      return;
+  }
+
+  bool ok = false;
+  ok = write(0xAA);
+  if (!ok) Serial.println(F("Wire failed"));
+  delay(50);//was100
+  ok = write(0xFF);
+  if (!ok) Serial.println(F("Wire failed"));
+  delay(50);//was100
+///////////////////
+
+uint8_t state = read();
+  const int IOA = 0x1;
+  const int IOB = 0x2;
+  
+  if (state == -1)
+  {
+    Serial.println(F("Failed reading the DS2413"));
+  }
+  else
+  {
+    if (state & IOA)
+    {
+       Serial.print("   A");
+    }
+    if (state & IOB)
+    { //can use this IO if needed to perfom tasks
+    }
+  }
+
+}
